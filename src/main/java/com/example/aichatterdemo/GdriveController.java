@@ -27,6 +27,20 @@ public class GdriveController {
     @Value("${spring.security.oauth2.client.registration.google.redirect-uri}")
     private String redirectUri;
 
+    @Value("${google.api-key:}")
+    private String googleApiKey;
+
+
+    @GetMapping("/login/oauth2/code/google")
+    public ResponseEntity<Void> handleCallback() {
+        // 이 시점에 Spring Security가 토큰 교환 완료 후
+        // OAuth2AuthorizedClientRepository 에 토큰 저장됨
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .header("Location", "/drive.html")
+                .build();
+    }
+
+    /// ----------------
     @GetMapping("/api/drive/files")
     public List<File> listFiles(
             @RegisteredOAuth2AuthorizedClient("google") OAuth2AuthorizedClient authorizedClient) throws IOException {
@@ -71,5 +85,17 @@ public class GdriveController {
                 .body(zipOutput.toByteArray());
     }
 
+    @GetMapping("/api/drive/picker-config")
+    public java.util.Map<String, String> getPickerConfig(
+            @RegisteredOAuth2AuthorizedClient("google") OAuth2AuthorizedClient authorizedClient
+    ) {
+        String name = SecurityContextHolder.getContext().getAuthentication().getName();
+        log.info("--------------------------user: {}", name);
+        String accessToken = authorizedClient.getAccessToken().getTokenValue();
+        return java.util.Map.of(
+                "apiKey", googleApiKey == null ? "" : googleApiKey,
+                "oauthToken", accessToken
+        );
+    }
 
 }

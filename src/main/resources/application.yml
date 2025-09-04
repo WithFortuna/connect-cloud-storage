@@ -18,6 +18,9 @@ spring:
             authorization-uri: https://accounts.google.com/o/oauth2/v2/auth
             token-uri: https://oauth2.googleapis.com/token
 
+google:
+  api-key: ${GOOGLE_API_KEY}
+
 # spring oauth2 client 라이브러리:
 # Spring security -> OAuth2AuthorizationRequestRedirectFilter가 /oauth2/authorization/{registrationId} 가로챔
 # authorization-uri (https://accounts.google.com/o/oauth2/v2/auth?) 로 리다이렉트
