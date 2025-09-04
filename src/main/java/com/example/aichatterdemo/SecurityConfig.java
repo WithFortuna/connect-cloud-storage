@@ -11,20 +11,22 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
+                .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
-                                "/", "/index.html",
-                                "/css/**", "/js/**", "/images/**", "/favicon.ico",
-                                "/error"
+                                "/**"
                         ).permitAll()
-                        .requestMatchers("/api/**").authenticated()
-                        .anyRequest().authenticated()
+                        .requestMatchers("/api/**")
+                        .authenticated()
+                        .anyRequest()
+                        .authenticated()
                 )
-                .oauth2Login(oauth -> oauth
+                .oauth2Client(Customizer.withDefaults())
+/*                .oauth2Login(oauth -> oauth
                         .defaultSuccessUrl("/drive.html", true)
                 )
-                .logout(Customizer.withDefaults())
-                .csrf(csrf -> csrf.disable());
+                .logout(Customizer.withDefaults())*/
+        ;
 
         return http.build();
     }

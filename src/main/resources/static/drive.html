@@ -13,77 +13,103 @@
     button { padding: 8px 12px; cursor: pointer; }
     .error { color: #b00; margin-top: 12px; }
   </style>
+  <script src="https://apis.google.com/js/api.js"></script>
   <script>
-    async function fetchFiles() {
-      const res = await fetch('/api/drive/files');
-      if (!res.ok) throw new Error('파일 목록을 불러오지 못했습니다');
-      return await res.json();
-    }
+    let pickerApiLoaded = false;
+    let selectedIds = [];
+    let pickerConfig = null;
 
-    function renderList(files) {
+    function updateSelectedList(docs) {
       const list = document.getElementById('list');
       list.innerHTML = '';
-      if (!files.length) {
-        list.innerHTML = '<p>표시할 파일이 없습니다.</p>';
+      if (!docs || docs.length === 0) {
+        list.innerHTML = '<p>선택된 파일이 없습니다.</p>';
         return;
       }
-      for (const f of files) {
+      for (const d of docs) {
         const row = document.createElement('div');
         row.className = 'row';
         row.innerHTML = `
-          <input type="checkbox" value="${f.id}">
-          <img src="${f.iconLink || ''}" alt="" width="16" height="16">
-          <span>${f.name}</span>
-          <small style="color:#666">(${f.mimeType})</small>
-          <a href="${f.webViewLink}" target="_blank">열기</a>
+          <img src="${d.iconUrl || ''}" alt="" width="16" height="16">
+          <span>${d.name || d.id}</span>
+          <small style="color:#666">(${d.mimeType || ''})</small>
         `;
         list.appendChild(row);
       }
     }
 
-    async function submitSelection() {
-        const checked = Array.from(document.querySelectorAll('input[type=checkbox]:checked'))
-            .map(ch => ch.value);
-
-        if (checked.length === 0) {
-            alert('선택된 파일이 없습니다.');
-            return;
-        }
-
-        const query = checked.map(id => `ids=${encodeURIComponent(id)}`).join('&');
-
-        const res = await fetch(`/api/drive/files/download?${query}`, {
-            method: 'GET'
-        });
-
-        if (!res.ok) throw new Error('다운로드 실패');
-
-        const blob = await res.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = "files.zip"; // 서버에서 내려주는 Content-Disposition 헤더와 맞춤
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        window.URL.revokeObjectURL(url);
+    async function downloadSelected() {
+      const errorEl = document.getElementById('error');
+      errorEl.textContent = '';
+      if (!selectedIds.length) {
+        errorEl.textContent = '선택된 파일이 없습니다.';
+        return;
+      }
+      const query = selectedIds.map(id => `ids=${encodeURIComponent(id)}`).join('&');
+      const res = await fetch(`/api/drive/files/download?${query}`, { method: 'GET' });
+      if (!res.ok) throw new Error('다운로드 실패');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'files.zip';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
     }
 
+    function createPicker() {
+      if (!pickerApiLoaded || !pickerConfig) return;
+        const view = new google.picker.DocsView(google.picker.ViewId.DOCS)
+            .setIncludeFolders(true)
+            .setSelectFolderEnabled(false)
+            .setMode(google.picker.DocsViewMode.LIST);
+      const picker = new google.picker.PickerBuilder()
+        // .enableFeature(google.picker.Feature.NAV_HIDDEN)
+        .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
+        .setDeveloperKey(pickerConfig.apiKey)
+        .setOAuthToken(pickerConfig.oauthToken)
+        .addView(view)
+        .setCallback(pickerCallback)
+        .build();
+      picker.setVisible(true);
+    }
 
+    function pickerCallback(data) {
+      if (data.action === google.picker.Action.PICKED) {
+        const docs = data.docs || [];
+        selectedIds = docs.map(d => d.id);
+        updateSelectedList(docs);
+      }
+    }
 
-    window.addEventListener('DOMContentLoaded', async () => {
+    async function initPickerFlow() {
       const errorEl = document.getElementById('error');
+      errorEl.textContent = '';
       try {
-        const files = await fetchFiles();
-        renderList(files);
+        const res = await fetch('/api/drive/picker-config');
+        if (!res.ok) throw new Error('Picker 설정을 불러오지 못했습니다');
+        pickerConfig = await res.json();
+        if (!pickerConfig.apiKey) {
+          throw new Error('서버에 GOOGLE_API_KEY가 설정되지 않았습니다.');
+        }
+        gapi.load('picker', () => {
+          pickerApiLoaded = true;
+          createPicker();
+        });
       } catch (e) {
         errorEl.textContent = e.message;
       }
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('open-picker').addEventListener('click', initPickerFlow);
       document.getElementById('submit').addEventListener('click', async () => {
         const errorEl = document.getElementById('error');
         errorEl.textContent = '';
         try {
-          await submitSelection();
+          await downloadSelected();
         } catch (e) {
           errorEl.textContent = e.message;
         }
@@ -94,10 +120,12 @@
 <body>
   <h1>Google Drive 파일 선택</h1>
   <div id="error" class="error"></div>
+  <div class="actions">
+    <button id="open-picker">Google Drive에서 선택</button>
+  </div>
   <div id="list" class="list"></div>
   <div class="actions">
     <button id="submit">선택 완료</button>
   </div>
 </body>
 </html>
-
