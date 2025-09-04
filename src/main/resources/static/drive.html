@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Google Drive 파일 선택</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 24px; }
+    h1 { font-size: 20px; }
+    .row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #eee; }
+    .list { margin-top: 12px; }
+    .actions { margin-top: 16px; }
+    button { padding: 8px 12px; cursor: pointer; }
+    .error { color: #b00; margin-top: 12px; }
+  </style>
+  <script>
+    async function fetchFiles() {
+      const res = await fetch('/api/drive/files');
+      if (!res.ok) throw new Error('파일 목록을 불러오지 못했습니다');
+      return await res.json();
+    }
+
+    function renderList(files) {
+      const list = document.getElementById('list');
+      list.innerHTML = '';
+      if (!files.length) {
+        list.innerHTML = '<p>표시할 파일이 없습니다.</p>';
+        return;
+      }
+      for (const f of files) {
+        const row = document.createElement('div');
+        row.className = 'row';
+        row.innerHTML = `
+          <input type="checkbox" value="${f.id}">
+          <img src="${f.iconLink || ''}" alt="" width="16" height="16">
+          <span>${f.name}</span>
+          <small style="color:#666">(${f.mimeType})</small>
+          <a href="${f.webViewLink}" target="_blank">열기</a>
+        `;
+        list.appendChild(row);
+      }
+    }
+
+    async function submitSelection() {
+        const checked = Array.from(document.querySelectorAll('input[type=checkbox]:checked'))
+            .map(ch => ch.value);
+
+        if (checked.length === 0) {
+            alert('선택된 파일이 없습니다.');
+            return;
+        }
+
+        const query = checked.map(id => `ids=${encodeURIComponent(id)}`).join('&');
+
+        const res = await fetch(`/api/drive/files/download?${query}`, {
+            method: 'GET'
+        });
+
+        if (!res.ok) throw new Error('다운로드 실패');
+
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = "files.zip"; // 서버에서 내려주는 Content-Disposition 헤더와 맞춤
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        window.URL.revokeObjectURL(url);
+    }
+
+
+
+    window.addEventListener('DOMContentLoaded', async () => {
+      const errorEl = document.getElementById('error');
+      try {
+        const files = await fetchFiles();
+        renderList(files);
+      } catch (e) {
+        errorEl.textContent = e.message;
+      }
+      document.getElementById('submit').addEventListener('click', async () => {
+        const errorEl = document.getElementById('error');
+        errorEl.textContent = '';
+        try {
+          await submitSelection();
+        } catch (e) {
+          errorEl.textContent = e.message;
+        }
+      });
+    });
+  </script>
+  </head>
+<body>
+  <h1>Google Drive 파일 선택</h1>
+  <div id="error" class="error"></div>
+  <div id="list" class="list"></div>
+  <div class="actions">
+    <button id="submit">선택 완료</button>
+  </div>
+</body>
+</html>
+

@@ -1,0 +1,25 @@
+spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            scope:
+#              - openid
+              - profile
+              - email
+              - https://www.googleapis.com/auth/drive.readonly
+            redirect-uri: ${GOOGLE_REDIRECT_URI}
+            authorization-grant-type: authorization_code
+        provider:
+          google-drive:
+            authorization-uri: https://accounts.google.com/o/oauth2/v2/auth
+            token-uri: https://oauth2.googleapis.com/token
+
+# spring oauth2 client 라이브러리:
+# Spring security -> OAuth2AuthorizationRequestRedirectFilter가 /oauth2/authorization/{registrationId} 가로챔
+# authorization-uri (https://accounts.google.com/o/oauth2/v2/auth?) 로 리다이렉트
+# 로그인 -> redirect-uri (http://localhost:8080/login/oauth2/code/google)로 리다이렉트 -> OAuth2LoginAuthenticationFilter가 가로챔 & 인증코드 <-> 토큰으로 교환
+#
