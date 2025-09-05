@@ -1,4 +1,4 @@
-package com.example.aichatterdemo;
+package com.example.aichatterdemo.infrastructure;
 
 import com.google.api.client.http.HttpRequestInitializer;
 import com.google.api.client.http.javanet.NetHttpTransport;
