@@ -2,25 +2,21 @@ package com.example.aichatterdemo;
 
 import com.google.api.services.drive.Drive;
 import com.google.api.services.drive.model.File;
-import com.google.api.services.drive.model.FileList;
-import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.client.OAuth2AuthorizedClient;
 import org.springframework.security.oauth2.client.annotation.RegisteredOAuth2AuthorizedClient;
-import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -45,24 +41,6 @@ public class GdriveController {
                 .build();
     }
 
-    /// ----------------
-    @GetMapping("/api/drive/files")
-    public List<File> listFiles(
-            // 외부 리소스 접근 권한을 위임받은 OAuth2 인증정보는 OAuth2AuthorizedClientRepository에 저장
-            @RegisteredOAuth2AuthorizedClient("google") OAuth2AuthorizedClient authorizedClient
-            ) throws IOException {
-        String accessToken = authorizedClient.getAccessToken().getTokenValue();
-
-        Drive drive = GoogleDriveClientFactory.create(accessToken);
-
-        FileList result = drive.files().list()
-                .setPageSize(20)
-                .setQ("trashed = false")
-                .setFields("files(id, name, mimeType, size, modifiedTime, webViewLink)")
-                .execute();
-
-        return result.getFiles(); // JSON 응답으로 내려주면 프론트에서 목록 렌더링 가능
-    }
 
     @GetMapping("/api/drive/files/download")
     public ResponseEntity<byte[]> downloadFiles(@RequestParam List<String> ids,
@@ -74,15 +52,8 @@ public class GdriveController {
         Drive drive = GoogleDriveClientFactory.create(accessToken);
 
         for (String id : ids) {
-            ByteArrayOutputStream fileOut = new ByteArrayOutputStream();
-            drive.files().get(id).executeMediaAndDownloadTo(fileOut);
-
-            ZipEntry entry = new ZipEntry(id + ".bin");
-            zip.putNextEntry(entry);
-            zip.write(fileOut.toByteArray());
-            zip.closeEntry();
+            downloadFilesToZipEntry(id, drive, zip);
         }
-
         zip.close();
 
         return ResponseEntity.ok()
@@ -91,8 +62,67 @@ public class GdriveController {
                 .body(zipOutput.toByteArray());
     }
 
+    private static void downloadFilesToZipEntry(String id, Drive drive, ZipOutputStream zip) throws IOException {
+        File file = drive.files().get(id)
+                .setFields("id, name, mimeType")
+                .setSupportsAllDrives(true)
+                .execute();
+        String mimeType = file.getMimeType();
+        String fileName = file.getName();
+        ByteArrayOutputStream fileOut = new ByteArrayOutputStream();
+        String standardMimeType;
+        switch (mimeType) {
+            case "application/vnd.google-apps.document":
+                standardMimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"; // DOCX
+                fileName += ".docx";
+                break;
+
+            case "application/vnd.google-apps.spreadsheet":
+                standardMimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";  // XLSX
+                fileName += ".xlsx";
+                break;
+
+            case "application/vnd.google-apps.presentation":
+                standardMimeType = "application/vnd.openxmlformats-officedocument.presentationml.presentation";  // PPTX
+                fileName += ".pptx";
+                break;
+
+            default:
+                standardMimeType = mimeType;
+                // 원래 확장자 그대로 사용 가능
+        }
+        if (mimeType.startsWith("application/vnd.google")) {
+            downloadFile(id, drive, fileOut, standardMimeType);
+        } else {
+            downloadFile(id, drive, fileOut);
+        }
+
+        ZipEntry entry = new ZipEntry(fileName);
+        putEntryToZip(zip, entry, fileOut);
+    }
+
+    private static void putEntryToZip(ZipOutputStream zip, ZipEntry entry, ByteArrayOutputStream fileOut) throws IOException {
+        zip.putNextEntry(entry);
+        zip.write(fileOut.toByteArray());
+        zip.closeEntry();
+    }
+
+    private static void downloadFile(String id, Drive drive, ByteArrayOutputStream fileOut, String standardMimeType) throws IOException {
+        drive.files()
+                .export(id, standardMimeType)
+                .executeMediaAndDownloadTo(fileOut);
+    }
+
+    private static void downloadFile(String id, Drive drive, ByteArrayOutputStream fileOut) throws IOException {
+        drive.files()
+                .get(id)
+                .setSupportsAllDrives(true)
+                .executeMediaAndDownloadTo(fileOut);
+    }
+
+
     @GetMapping("/api/drive/picker-config")
-    public java.util.Map<String, String> getPickerConfig(
+    public Map<String, String> getPickerConfig(
             @RegisteredOAuth2AuthorizedClient("google") OAuth2AuthorizedClient authorizedClient
     ) {
         String name = SecurityContextHolder.getContext().getAuthentication().getName();
