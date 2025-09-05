@@ -1,8 +1,12 @@
 package com.example.aichatterdemo;
 
+import com.example.aichatterdemo.strategy.BinaryStrategy;
+import com.example.aichatterdemo.strategy.DownloadStrategy;
+import com.example.aichatterdemo.strategy.GoogleFormatStrategy;
 import com.google.api.services.drive.Drive;
 import com.google.api.services.drive.model.File;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -15,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.zip.ZipEntry;
@@ -25,12 +30,29 @@ import java.util.zip.ZipOutputStream;
 public class GdriveController {
     @Value("${spring.security.oauth2.client.registration.google.client-id}")
     private String clientId;
+
     @Value("${spring.security.oauth2.client.registration.google.redirect-uri}")
     private String redirectUri;
 
     @Value("${google.api-key:}")
     private String googleApiKey;
 
+    private List<DownloadStrategy>  downloadStrategies = new ArrayList<>();
+
+    @Autowired
+    public GdriveController(List<DownloadStrategy> downloadStrategies) {
+        this.downloadStrategies = downloadStrategies;
+    }
+
+    private DownloadStrategy getDownloadStrategy(String mimeType) {
+        for(DownloadStrategy downloadStrategy : downloadStrategies){
+            if (downloadStrategy.supports(mimeType)) {
+                return downloadStrategy;
+            }
+        }
+
+        throw new IllegalArgumentException();
+    }
 
     @GetMapping("/login/oauth2/code/google")
     public ResponseEntity<Void> handleCallback() {
@@ -45,9 +67,7 @@ public class GdriveController {
     @GetMapping("/api/drive/files/download")
     public ResponseEntity<byte[]> downloadFiles(@RequestParam List<String> ids,
                                                 @RegisteredOAuth2AuthorizedClient("google") OAuth2AuthorizedClient authorizedClient) throws IOException {
-        ByteArrayOutputStream zipOutput = new ByteArrayOutputStream();
-        ZipOutputStream zip = new ZipOutputStream(zipOutput);
-
+        ZipOutputStream zip = new ZipOutputStream(new ByteArrayOutputStream());
         String accessToken = authorizedClient.getAccessToken().getTokenValue();
         Drive drive = GoogleDriveClientFactory.create(accessToken);
 
@@ -59,65 +79,26 @@ public class GdriveController {
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=files.zip")
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
-                .body(zipOutput.toByteArray());
+                .body(new ByteArrayOutputStream().toByteArray());
     }
 
-    private static void downloadFilesToZipEntry(String id, Drive drive, ZipOutputStream zip) throws IOException {
+    private void downloadFilesToZipEntry(String id, Drive drive, ZipOutputStream zip) throws IOException {
         File file = drive.files().get(id)
                 .setFields("id, name, mimeType")
                 .setSupportsAllDrives(true)
                 .execute();
-        String mimeType = file.getMimeType();
-        String fileName = file.getName();
         ByteArrayOutputStream fileOut = new ByteArrayOutputStream();
-        String standardMimeType;
-        switch (mimeType) {
-            case "application/vnd.google-apps.document":
-                standardMimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"; // DOCX
-                fileName += ".docx";
-                break;
 
-            case "application/vnd.google-apps.spreadsheet":
-                standardMimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";  // XLSX
-                fileName += ".xlsx";
-                break;
+        DownloadStrategy downloadStrategy = getDownloadStrategy(file.getMimeType());
+        downloadStrategy.download(file, drive, fileOut);
 
-            case "application/vnd.google-apps.presentation":
-                standardMimeType = "application/vnd.openxmlformats-officedocument.presentationml.presentation";  // PPTX
-                fileName += ".pptx";
-                break;
-
-            default:
-                standardMimeType = mimeType;
-                // 원래 확장자 그대로 사용 가능
-        }
-        if (mimeType.startsWith("application/vnd.google")) {
-            downloadFile(id, drive, fileOut, standardMimeType);
-        } else {
-            downloadFile(id, drive, fileOut);
-        }
-
-        ZipEntry entry = new ZipEntry(fileName);
-        putEntryToZip(zip, entry, fileOut);
+        putEntryToZip(zip, new ZipEntry(downloadStrategy.buildFileName(file)), fileOut);
     }
 
     private static void putEntryToZip(ZipOutputStream zip, ZipEntry entry, ByteArrayOutputStream fileOut) throws IOException {
         zip.putNextEntry(entry);
         zip.write(fileOut.toByteArray());
         zip.closeEntry();
-    }
-
-    private static void downloadFile(String id, Drive drive, ByteArrayOutputStream fileOut, String standardMimeType) throws IOException {
-        drive.files()
-                .export(id, standardMimeType)
-                .executeMediaAndDownloadTo(fileOut);
-    }
-
-    private static void downloadFile(String id, Drive drive, ByteArrayOutputStream fileOut) throws IOException {
-        drive.files()
-                .get(id)
-                .setSupportsAllDrives(true)
-                .executeMediaAndDownloadTo(fileOut);
     }
 
 
