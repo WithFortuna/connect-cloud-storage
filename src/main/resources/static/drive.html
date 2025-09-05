@@ -61,19 +61,29 @@
 
     function createPicker() {
       if (!pickerApiLoaded || !pickerConfig) return;
-        const view = new google.picker.DocsView(google.picker.ViewId.DOCS)
+        // My Drive 뷰
+        const myDriveView = new google.picker.DocsView(google.picker.ViewId.DOCS)
             .setIncludeFolders(true)
             .setSelectFolderEnabled(false)
             .setMode(google.picker.DocsViewMode.LIST);
-      const picker = new google.picker.PickerBuilder()
-        // .enableFeature(google.picker.Feature.NAV_HIDDEN)
-        .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
-        .setDeveloperKey(pickerConfig.apiKey)
-        .setOAuthToken(pickerConfig.oauthToken)
-        .addView(view)
-        .setCallback(pickerCallback)
-        .build();
-      picker.setVisible(true);
+
+        // Shared Drive 뷰
+        const sharedDriveView = new google.picker.DocsView(google.picker.ViewId.DOCS)
+            .setIncludeFolders(true)
+            .setSelectFolderEnabled(false)
+            .setMode(google.picker.DocsViewMode.LIST)
+            .setEnableDrives(true);   // ✅ 공유 드라이브 포함 옵션
+
+        const picker = new google.picker.PickerBuilder()
+            // .enableFeature(google.picker.Feature.NAV_HIDDEN)
+            .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
+            .setDeveloperKey(pickerConfig.apiKey)
+            .setOAuthToken(pickerConfig.oauthToken)
+            .addView(myDriveView)
+            .addView(sharedDriveView)
+            .setCallback(pickerCallback)
+            .build();
+        picker.setVisible(true);
     }
 
     function pickerCallback(data) {
