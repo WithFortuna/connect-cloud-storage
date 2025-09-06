@@ -7,9 +7,6 @@ spring:
             client-id: ${GOOGLE_CLIENT_ID}
             client-secret: ${GOOGLE_CLIENT_SECRET}
             scope:
-#              - openid
-              - profile
-              - email
               - https://www.googleapis.com/auth/drive.readonly
             redirect-uri: ${GOOGLE_REDIRECT_URI}
             authorization-grant-type: authorization_code
@@ -17,6 +14,9 @@ spring:
           google-drive:
             authorization-uri: https://accounts.google.com/o/oauth2/v2/auth
             token-uri: https://oauth2.googleapis.com/token
+
+google:
+  api-key: ${GOOGLE_API_KEY}
 
 # spring oauth2 client 라이브러리:
 # Spring security -> OAuth2AuthorizationRequestRedirectFilter가 /oauth2/authorization/{registrationId} 가로챔
