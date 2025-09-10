@@ -1,141 +1,272 @@
 <!doctype html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Google Drive 파일 선택</title>
-  <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 24px; }
-    h1 { font-size: 20px; }
-    .row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #eee; }
-    .list { margin-top: 12px; }
-    .actions { margin-top: 16px; }
-    button { padding: 8px 12px; cursor: pointer; }
-    .error { color: #b00; margin-top: 12px; }
-  </style>
-  <script src="https://apis.google.com/js/api.js"></script>
-  <script>
-    let pickerApiLoaded = false;
-    let selectedIds = [];
-    let pickerConfig = null;
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Google Drive 파일 선택</title>
+    <style>
+        body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 24px; }
+        h1 { font-size: 20px; }
+        .row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #eee; }
+        .list { margin-top: 12px; }
+        .actions { margin-top: 16px; }
+        button { padding: 8px 12px; cursor: pointer; }
+        .error { color: #b00; margin-top: 12px; }
+        .loading { color: #666; font-style: italic; }
+    </style>
 
-    function updateSelectedList(docs) {
-      const list = document.getElementById('list');
-      list.innerHTML = '';
-      if (!docs || docs.length === 0) {
-        list.innerHTML = '<p>선택된 파일이 없습니다.</p>';
-        return;
-      }
-      for (const d of docs) {
-        const row = document.createElement('div');
-        row.className = 'row';
-        row.innerHTML = `
+    <!-- Google API & GIS SDK -->
+    <script src="https://apis.google.com/js/api.js"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer onload="gisLoaded()"></script>
+
+    <script>
+        let pickerApiLoaded = false;
+        let selectedIds = [];
+        let pickerConfig = null;
+        let tokenClient = null;
+        let oauthToken = null;
+
+        function updateSelectedList(docs) {
+            const list = document.getElementById('list');
+            list.innerHTML = '';
+            if (!docs || docs.length === 0) {
+                list.innerHTML = '<p>선택된 파일이 없습니다.</p>';
+                return;
+            }
+            for (const d of docs) {
+                const row = document.createElement('div');
+                row.className = 'row';
+                row.innerHTML = `
           <img src="${d.iconUrl || ''}" alt="" width="16" height="16">
           <span>${d.name || d.id}</span>
           <small style="color:#666">(${d.mimeType || ''})</small>
         `;
-        list.appendChild(row);
-      }
-    }
-
-    async function downloadSelected() {
-      const errorEl = document.getElementById('error');
-      errorEl.textContent = '';
-      if (!selectedIds.length) {
-        errorEl.textContent = '선택된 파일이 없습니다.';
-        return;
-      }
-      const query = selectedIds.map(id => `ids=${encodeURIComponent(id)}`).join('&');
-      const res = await fetch(`/api/drive/files/download?${query}`, { method: 'GET' });
-      if (!res.ok) throw new Error('다운로드 실패');
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'files.zip';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
-    }
-
-    function createPicker() {
-      if (!pickerApiLoaded || !pickerConfig) return;
-        // My Drive 뷰
-        const myDriveView = new google.picker.DocsView(google.picker.ViewId.DOCS)
-            .setIncludeFolders(true)
-            .setSelectFolderEnabled(false)
-            .setMode(google.picker.DocsViewMode.LIST);
-
-        // Shared Drive 뷰
-        const sharedDriveView = new google.picker.DocsView(google.picker.ViewId.DOCS)
-            .setIncludeFolders(true)
-            .setSelectFolderEnabled(false)
-            .setMode(google.picker.DocsViewMode.LIST)
-            .setEnableDrives(true);   // ✅ 공유 드라이브 포함 옵션
-
-        const picker = new google.picker.PickerBuilder()
-            // .enableFeature(google.picker.Feature.NAV_HIDDEN)
-            .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
-            .setDeveloperKey(pickerConfig.apiKey)
-            .setOAuthToken(pickerConfig.oauthToken)
-            .addView(myDriveView)
-            .addView(sharedDriveView)
-            .setCallback(pickerCallback)
-            .build();
-        picker.setVisible(true);
-    }
-
-    function pickerCallback(data) {
-      if (data.action === google.picker.Action.PICKED) {
-        const docs = data.docs || [];
-        selectedIds = docs.map(d => d.id);
-        updateSelectedList(docs);
-      }
-    }
-
-    async function initPickerFlow() {
-      const errorEl = document.getElementById('error');
-      errorEl.textContent = '';
-      try {
-        const res = await fetch('/api/drive/picker-config');
-        if (!res.ok) throw new Error('Picker 설정을 불러오지 못했습니다');
-        pickerConfig = await res.json();
-        if (!pickerConfig.apiKey) {
-          throw new Error('서버에 GOOGLE_API_KEY가 설정되지 않았습니다.');
+                list.appendChild(row);
+            }
         }
-        gapi.load('picker', () => {
-          pickerApiLoaded = true;
-          createPicker();
+
+        function showError(message) {
+            document.getElementById('error').textContent = message;
+        }
+
+        function showLoading(message) {
+            document.getElementById('error').innerHTML = `<span class="loading">${message}</span>`;
+        }
+
+        function clearError() {
+            document.getElementById('error').textContent = '';
+        }
+
+        // GIS SDK 로드 완료 시 호출
+        function gisLoaded() {
+            console.log('GIS SDK 로드 완료');
+        }
+
+        function initTokenClient() {
+            if (!pickerConfig || !pickerConfig.clientId) {
+                showError('클라이언트 설정이 없습니다.');
+                return;
+            }
+
+            tokenClient = google.accounts.oauth2.initTokenClient({
+                client_id: pickerConfig.clientId,
+                scope: 'https://www.googleapis.com/auth/drive.file',
+                prompt: 'consent',
+                callback: (response) => {
+                    if (response.error) {
+                        console.error("토큰 요청 실패:", response);
+                        showError(`토큰 요청 실패: ${response.error}`);
+                        return;
+                    }
+
+                    oauthToken = response.access_token;
+                    console.log("새 토큰 발급됨");
+                    clearError();
+                    createPicker();
+                },
+            });
+        }
+
+        async function downloadSelected() {
+            clearError();
+
+            if (!selectedIds.length) {
+                showError('선택된 파일이 없습니다.');
+                return;
+            }
+
+            if (!oauthToken) {
+                showError('토큰이 없습니다. 다시 Google Drive에서 파일을 선택해주세요.');
+                return;
+            }
+
+            // 🔑 토큰 매번 새로 발급
+            tokenClient.callback = (response) => {
+                if (response.error) {
+                    console.error("토큰 재발급 실패:", response);
+                    showError(`토큰 재발급 실패: ${response.error}`);
+                    return;
+                }
+
+                oauthToken = response.access_token; // fresh 토큰
+
+                doDownload(); // 실제 다운로드 실행
+            };
+
+            tokenClient.requestAccessToken(); // <-- 여기서 발급
+        }
+        async function doDownload() {
+            try {
+                showLoading('파일 다운로드 중...');
+
+                const query = selectedIds.map(id => `ids=${encodeURIComponent(id)}`).join('&');
+                const res = await fetch(`/api/drive/files/download?${query}`, {
+                    method: 'GET',
+                    headers: {
+                        "Authorization": `Bearer ${oauthToken}`,  // fresh 토큰
+                    }
+                });
+
+                if (!res.ok) {
+                    if (res.status === 401) {
+                        throw new Error('토큰이 만료되었습니다. 다시 시도해주세요.');
+                    } else if (res.status === 403) {
+                        throw new Error('파일 접근 권한이 없습니다.');
+                    } else {
+                        throw new Error(`다운로드 실패 (${res.status})`);
+                    }
+                }
+
+                const blob = await res.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'files.zip';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+
+                clearError();
+                console.log('다운로드 완료');
+            } catch (e) {
+                showError(e.message);
+            }
+        }
+        function createPicker() {
+            if (!pickerApiLoaded || !pickerConfig || !oauthToken) {
+                console.log('Picker 생성 조건 미충족:', { pickerApiLoaded, pickerConfig: !!pickerConfig, oauthToken: !!oauthToken });
+                return;
+            }
+
+            try {
+                const myDriveView = new google.picker.DocsView(google.picker.ViewId.DOCS)
+                    .setIncludeFolders(true)
+                    .setSelectFolderEnabled(false)
+                    .setMode(google.picker.DocsViewMode.LIST);
+
+                const sharedDriveView = new google.picker.DocsView(google.picker.ViewId.DOCS)
+                    .setIncludeFolders(true)
+                    .setSelectFolderEnabled(false)
+                    .setMode(google.picker.DocsViewMode.LIST)
+                    .setEnableDrives(true);
+
+                const picker = new google.picker.PickerBuilder()
+                    .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
+                    .setDeveloperKey(pickerConfig.apiKey)
+                    .setOAuthToken(oauthToken)
+                    .setAppId(1033220972532)
+                    .addView(myDriveView)
+                    .addView(sharedDriveView)
+                    .setCallback(pickerCallback)
+                    .build();
+
+                picker.setVisible(true);
+                console.log('Picker 실행됨');
+            } catch (e) {
+                showError(`Picker 생성 실패: ${e.message}`);
+            }
+        }
+
+        function pickerCallback(data) {
+            if (data.action === google.picker.Action.PICKED) {
+                const docs = data.docs || [];
+                selectedIds = docs.map(d => d.id);
+                updateSelectedList(docs);
+                console.log(`${docs.length}개 파일 선택됨`);
+            } else if (data.action === google.picker.Action.CANCEL) {
+                console.log('Picker 취소됨');
+            }
+        }
+
+        async function initPickerFlow() {
+            clearError();
+
+            try {
+                showLoading('설정 정보를 가져오는 중...');
+
+                // 백엔드에서 설정 정보 가져오기
+                const res = await fetch('/api/drive/picker-config');
+                if (!res.ok) {
+                    throw new Error('Picker 설정을 불러오지 못했습니다');
+                }
+
+                pickerConfig = await res.json();
+                console.log('Picker 설정:', pickerConfig);
+
+                if (!pickerConfig.apiKey) {
+                    throw new Error('서버에 GOOGLE_API_KEY가 설정되지 않았습니다.');
+                }
+
+                if (!pickerConfig.clientId) {
+                    throw new Error('서버에 GOOGLE_CLIENT_ID가 설정되지 않았습니다.');
+                }
+
+                // GIS SDK가 로드될 때까지 대기
+                if (typeof google === 'undefined' || !google.accounts) {
+                    showLoading('Google SDK 로딩 중...');
+                    setTimeout(initPickerFlow, 500);
+                    return;
+                }
+
+                // Token Client 초기화
+                initTokenClient();
+
+                // Picker API 로드
+                showLoading('Picker API 로딩 중...');
+                gapi.load('picker', () => {
+                    pickerApiLoaded = true;
+                    console.log('Picker API 로드 완료');
+
+                    // 토큰 요청 시작
+                    if (tokenClient) {
+                        showLoading('Google 로그인 중...');
+                        tokenClient.requestAccessToken();
+                    } else {
+                        showError('Token Client 초기화 실패');
+                    }
+                });
+
+            } catch (e) {
+                showError(e.message);
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('open-picker').addEventListener('click', initPickerFlow);
+            document.getElementById('submit').addEventListener('click', downloadSelected);
         });
-      } catch (e) {
-        errorEl.textContent = e.message;
-      }
-    }
-
-    window.addEventListener('DOMContentLoaded', () => {
-      document.getElementById('open-picker').addEventListener('click', initPickerFlow);
-      document.getElementById('submit').addEventListener('click', async () => {
-        const errorEl = document.getElementById('error');
-        errorEl.textContent = '';
-        try {
-          await downloadSelected();
-        } catch (e) {
-          errorEl.textContent = e.message;
-        }
-      });
-    });
-  </script>
-  </head>
+    </script>
+</head>
 <body>
-  <h1>Google Drive 파일 선택</h1>
-  <div id="error" class="error"></div>
-  <div class="actions">
+<h1>Google Drive 파일 선택</h1>
+<div id="error" class="error"></div>
+<div class="actions">
     <button id="open-picker">Google Drive에서 선택</button>
-  </div>
-  <div id="list" class="list"></div>
-  <div class="actions">
+</div>
+<div id="list" class="list"></div>
+<div class="actions">
     <button id="submit">선택 완료</button>
-  </div>
+</div>
 </body>
 </html>

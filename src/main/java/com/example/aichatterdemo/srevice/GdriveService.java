@@ -16,21 +16,11 @@ import java.util.zip.ZipOutputStream;
 
 @Service
 public class GdriveService {
-    private List<DownloadStrategy>  downloadStrategies = new ArrayList<>();
+    private final List<DownloadStrategy>  downloadStrategies;
 
     @Autowired
     public GdriveService(List<DownloadStrategy> downloadStrategies) {
         this.downloadStrategies = downloadStrategies;
-    }
-
-    private DownloadStrategy getDownloadStrategy(String mimeType) {
-        for(DownloadStrategy downloadStrategy : downloadStrategies){
-            if (downloadStrategy.supports(mimeType)) {
-                return downloadStrategy;
-            }
-        }
-
-        throw new IllegalArgumentException();
     }
 
     public ByteArrayOutputStream downloadFiles(List<String> ids, String accessToken) throws IOException {
@@ -57,6 +47,16 @@ public class GdriveService {
         downloadStrategy.download(file, drive, fileOut);
 
         putEntryToZip(zip, new ZipEntry(downloadStrategy.buildFileName(file)), fileOut);
+    }
+
+    private DownloadStrategy getDownloadStrategy(String mimeType) {
+        for(DownloadStrategy downloadStrategy : downloadStrategies){
+            if (downloadStrategy.supports(mimeType)) {
+                return downloadStrategy;
+            }
+        }
+
+        throw new IllegalArgumentException();
     }
 
     private static void putEntryToZip(ZipOutputStream zip, ZipEntry entry, ByteArrayOutputStream fileOut) throws IOException {
