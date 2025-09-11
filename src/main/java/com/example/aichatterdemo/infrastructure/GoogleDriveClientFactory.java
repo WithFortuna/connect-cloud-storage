@@ -13,7 +13,7 @@ public class GoogleDriveClientFactory {
     public static Drive create(String accessToken) {
         GoogleCredentials credentials = GoogleCredentials
                 .create(new AccessToken(accessToken, null))
-                .createScoped(DriveScopes.DRIVE_READONLY);
+                .createScoped(DriveScopes.DRIVE_FILE);
         HttpRequestInitializer httpRequestInitializer = new HttpCredentialsAdapter(credentials);
         return new Drive.Builder(
                 new NetHttpTransport(),
