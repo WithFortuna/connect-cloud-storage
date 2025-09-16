@@ -10,13 +10,52 @@ spring:
               - https://www.googleapis.com/auth/drive.file
             redirect-uri: ${GOOGLE_REDIRECT_URI}
             authorization-grant-type: authorization_code
+          dropbox:
+            client-id: ${DROPBOX_CLIENT_ID}
+            client-secret: ${DROPBOX_CLIENT_SECRET}
+            scope:
+              - files.content.read
+              - files.metadata.read
+              - account_info.read
+            redirect-uri: ${DROPBOX_REDIRECT_URI}
+            authorization-grant-type: authorization_code
+            provider: dropbox
+
         provider:
           google-drive:
             authorization-uri: https://accounts.google.com/o/oauth2/v2/auth
             token-uri: https://oauth2.googleapis.com/token
 
+          dropbox:
+            authorization-uri: https://www.dropbox.com/oauth2/authorize?token_access_type=offline
+            token-uri: https://api.dropboxapi.com/oauth2/token
+
+server:
+  servlet:
+    session:
+      cookie:
+        secure: true         # HTTPS 에서만 전송
+        same-site: none      # 외부 redirect 후에도 포함
+        domain: pickly.space
+        path: /
+        http-only: true
+  forward-headers-strategy: framework
+
 google:
   api-key: ${GOOGLE_API_KEY}
+dropbox:
+  download-url: ${DROPBOX_DOWNLOAD_URL}
+#logging:
+#  level:
+#    org.springframework.security.oauth2.client: DEBUG
+#    org.springframework.web.client.RestTemplate: DEBUG
+#    org.springframework.web.reactive.function.client.ExchangeFunctions: DEBUG
+#
+
+logging:
+  level:
+    root: DEBUG
+
 
 # spring oauth2 client 라이브러리:
 # Spring security -> OAuth2AuthorizationRequestRedirectFilter가 /oauth2/authorization/{registrationId} 가로챔
