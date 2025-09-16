@@ -1,131 +1,377 @@
 <!doctype html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Google Drive 파일 선택</title>
-  <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 24px; }
-    h1 { font-size: 20px; }
-    .row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #eee; }
-    .list { margin-top: 12px; }
-    .actions { margin-top: 16px; }
-    button { padding: 8px 12px; cursor: pointer; }
-    .error { color: #b00; margin-top: 12px; }
-  </style>
-  <script src="https://apis.google.com/js/api.js"></script>
-  <script>
-    let pickerApiLoaded = false;
-    let selectedIds = [];
-    let pickerConfig = null;
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Google Drive 파일 선택</title>
+    <style>
+        body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin: 24px; }
+        h1 { font-size: 20px; }
+        .row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #eee; }
+        .list { margin-top: 12px; }
+        .actions { margin-top: 16px; }
+        button { padding: 8px 12px; cursor: pointer; }
+        .error { color: #b00; margin-top: 12px; }
+        .loading { color: #666; margin-top: 12px; }
+    </style>
+    <script src="https://apis.google.com/js/api.js"></script>
+    <script>
+        let pickerApiLoaded = false;
+        let selectedIds = [];
+        let pickerConfig = null;
+        let selectedGoogleDocs = [];
 
-    function updateSelectedList(docs) {
-      const list = document.getElementById('list');
-      list.innerHTML = '';
-      if (!docs || docs.length === 0) {
-        list.innerHTML = '<p>선택된 파일이 없습니다.</p>';
-        return;
-      }
-      for (const d of docs) {
-        const row = document.createElement('div');
-        row.className = 'row';
-        row.innerHTML = `
+        // Dropbox Chooser 관련 상태
+        let dropboxAppKey = null;
+        let selectedDropboxIds = [];
+        let selectedDropboxDocs = [];
+
+        function updateSelectedList(docs) {
+            const list = document.getElementById('list');
+            list.innerHTML = '';
+            if (!docs || docs.length === 0) {
+                list.innerHTML = '<p>선택된 파일이 없습니다.</p>';
+                return;
+            }
+            for (const d of docs) {
+                const row = document.createElement('div');
+                row.className = 'row';
+                row.innerHTML = `
           <img src="${d.iconUrl || ''}" alt="" width="16" height="16">
           <span>${d.name || d.id}</span>
           <small style="color:#666">(${d.mimeType || ''})</small>
         `;
-        list.appendChild(row);
-      }
-    }
-
-    async function downloadSelected() {
-      const errorEl = document.getElementById('error');
-      errorEl.textContent = '';
-      if (!selectedIds.length) {
-        errorEl.textContent = '선택된 파일이 없습니다.';
-        return;
-      }
-      const query = selectedIds.map(id => `ids=${encodeURIComponent(id)}`).join('&');
-      const res = await fetch(`/api/drive/files/download?${query}`, { method: 'GET' });
-      if (!res.ok) throw new Error('다운로드 실패');
-      const blob = await res.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'files.zip';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      window.URL.revokeObjectURL(url);
-    }
-
-    function createPicker() {
-      if (!pickerApiLoaded || !pickerConfig) return;
-        const view = new google.picker.DocsView(google.picker.ViewId.DOCS)
-            .setIncludeFolders(true)
-            .setSelectFolderEnabled(false)
-            .setMode(google.picker.DocsViewMode.LIST);
-      const picker = new google.picker.PickerBuilder()
-        // .enableFeature(google.picker.Feature.NAV_HIDDEN)
-        .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
-        .setDeveloperKey(pickerConfig.apiKey)
-        .setOAuthToken(pickerConfig.oauthToken)
-        .addView(view)
-        .setCallback(pickerCallback)
-        .build();
-      picker.setVisible(true);
-    }
-
-    function pickerCallback(data) {
-      if (data.action === google.picker.Action.PICKED) {
-        const docs = data.docs || [];
-        selectedIds = docs.map(d => d.id);
-        updateSelectedList(docs);
-      }
-    }
-
-    async function initPickerFlow() {
-      const errorEl = document.getElementById('error');
-      errorEl.textContent = '';
-      try {
-        const res = await fetch('/api/drive/picker-config');
-        if (!res.ok) throw new Error('Picker 설정을 불러오지 못했습니다');
-        pickerConfig = await res.json();
-        if (!pickerConfig.apiKey) {
-          throw new Error('서버에 GOOGLE_API_KEY가 설정되지 않았습니다.');
+                list.appendChild(row);
+            }
         }
-        gapi.load('picker', () => {
-          pickerApiLoaded = true;
-          createPicker();
+
+        function showLoading(message) {
+            const errorEl = document.getElementById('error');
+            errorEl.className = 'loading';
+            errorEl.textContent = message;
+        }
+
+        function showError(message) {
+            const errorEl = document.getElementById('error');
+            errorEl.className = 'error';
+            errorEl.textContent = message;
+        }
+
+        function clearMessage() {
+            const errorEl = document.getElementById('error');
+            errorEl.textContent = '';
+        }
+
+        async function downloadSelected() {
+            clearMessage();
+            if (!selectedIds.length) {
+                showError('선택된 파일이 없습니다.');
+                return;
+            }
+
+            showLoading('파일을 다운로드하고 있습니다...');
+
+            try {
+                const query = selectedIds.map(id => `ids=${encodeURIComponent(id)}`).join('&');
+                const res = await fetch(`/api/drive/files/download?${query}`, {
+                    method: 'GET',
+                    credentials: 'include' // 쿠키 포함
+                });
+
+                if (!res.ok) {
+                    throw new Error(`다운로드 실패: ${res.status} ${res.statusText}`);
+                }
+
+                const blob = await res.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'files.zip';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+                clearMessage();
+            } catch (e) {
+                showError(e.message || '다운로드 실패');
+            }
+        }
+
+        function createPicker() {
+            if (!pickerApiLoaded || !pickerConfig) return;
+
+            try {
+                // My Drive 뷰
+                const myDriveView = new google.picker.DocsView(google.picker.ViewId.DOCS)
+                    .setIncludeFolders(true)
+                    .setSelectFolderEnabled(false)
+                    .setMode(google.picker.DocsViewMode.LIST);
+
+                // Shared Drive 뷰
+                const sharedDriveView = new google.picker.DocsView(google.picker.ViewId.DOCS)
+                    .setIncludeFolders(true)
+                    .setSelectFolderEnabled(false)
+                    .setMode(google.picker.DocsViewMode.LIST)
+                    .setEnableDrives(true);
+
+                const picker = new google.picker.PickerBuilder()
+                    .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
+                    .setDeveloperKey(pickerConfig.apiKey)
+                    .setAppId(1033220972532)
+                    .setOAuthToken(pickerConfig.oauthToken)
+                    .addView(myDriveView)
+                    .addView(sharedDriveView)
+                    .setCallback(pickerCallback)
+                    .build();
+                picker.setVisible(true);
+                clearMessage();
+            } catch (e) {
+                showError('Picker를 생성하는 중 오류가 발생했습니다: ' + e.message);
+            }
+        }
+
+        function pickerCallback(data) {
+            if (data.action === google.picker.Action.PICKED) {
+                const docs = data.docs || [];
+                selectedIds = docs.map(d => d.id);
+                selectedGoogleDocs = docs.map(d => ({
+                    id: d.id, name: d.name, mimeType: d.mimeType, iconUrl: d.iconUrl
+                }));
+                updateSelectedList([...selectedGoogleDocs, ...selectedDropboxDocs]);
+                // 선택 즉시 다운로드 시작
+                downloadSelected();
+            }
+        }
+
+        // 방법 1: 먼저 인증 상태를 확인하는 별도 엔드포인트 사용
+        async function checkGoogleAuth() {
+            try {
+                const res = await fetch('/api/drive/auth-status', {
+                    method: 'GET',
+                    credentials: 'include'
+                });
+                return res.ok;
+            } catch (e) {
+                console.error('인증 상태 확인 실패:', e);
+                return false;
+            }
+        }
+
+        async function initPickerFlow() {
+            clearMessage();
+            showLoading('Google Drive 연결 중...');
+
+            try {
+                // 방법 1: 먼저 인증 상태 확인
+                const isAuthenticated = await checkGoogleAuth();
+                if (!isAuthenticated) {
+                    showLoading('Google 로그인이 필요합니다. 리다이렉트하고 있습니다...');
+                    // 페이지 전체를 리다이렉트
+                    setTimeout(() => {
+                        window.location.href = '/oauth2/authorization/google';
+                    }, 1000);
+                    return;
+                }
+
+                // 인증이 되어 있다면 picker-config 호출
+                const res = await fetch('/api/drive/picker-config', {
+                    credentials: 'include'
+                });
+
+                if (!res.ok) {
+                    if (res.status === 401 || res.status === 403) {
+                        showLoading('Google 로그인이 필요합니다. 리다이렉트하고 있습니다...');
+                        setTimeout(() => {
+                            window.location.href = '/oauth2/authorization/google';
+                        }, 1000);
+                        return;
+                    }
+                    throw new Error(`Picker 설정을 불러오지 못했습니다: ${res.status}`);
+                }
+
+                pickerConfig = await res.json();
+                if (!pickerConfig.apiKey) {
+                    throw new Error('서버에 GOOGLE_API_KEY가 설정되지 않았습니다.');
+                }
+
+                showLoading('Google Drive Picker를 로딩하고 있습니다...');
+                gapi.load('picker', () => {
+                    pickerApiLoaded = true;
+                    createPicker();
+                });
+            } catch (e) {
+                showError(e.message || 'Google Drive 연결 실패');
+            }
+        }
+
+        // -------- Dropbox Chooser --------
+        function loadDropboxChooser(appKey) {
+            return new Promise((resolve, reject) => {
+                if (window.Dropbox) return resolve();
+                const s = document.createElement('script');
+                s.id = 'dropboxjs';
+                s.type = 'text/javascript';
+                s.src = 'https://www.dropbox.com/static/api/2/dropins.js';
+                s.setAttribute('data-app-key', appKey);
+                s.onload = () => resolve();
+                s.onerror = () => reject(new Error('Dropbox 스크립트를 불러오지 못했습니다.'));
+                document.head.appendChild(s);
+            });
+        }
+
+        async function checkDropboxAuth() {
+            try {
+                const res = await fetch('/api/dropbox/auth-status', {
+                    method: 'GET',
+                    credentials: 'include'
+                });
+                return res.ok;
+            } catch (e) {
+                console.error('Dropbox 인증 상태 확인 실패:', e);
+                return false;
+            }
+        }
+
+        async function openDropboxChooser() {
+            clearMessage();
+            showLoading('Dropbox 연결 중...');
+
+            try {
+                // 먼저 인증 상태 확인
+                const isAuthenticated = await checkDropboxAuth();
+                if (!isAuthenticated) {
+                    showLoading('Dropbox 로그인이 필요합니다. 리다이렉트하고 있습니다...');
+                    setTimeout(() => {
+                        window.location.href = '/oauth2/authorization/dropbox';
+                    }, 1000);
+                    return;
+                }
+
+                if (!dropboxAppKey) {
+                    const res = await fetch('/api/dropbox/chooser-config', {
+                        credentials: 'include'
+                    });
+                    if (!res.ok) throw new Error('Dropbox 설정을 불러오지 못했습니다.');
+                    const cfg = await res.json();
+                    dropboxAppKey = cfg.appKey;
+                    if (!dropboxAppKey) throw new Error('서버에 DROPBOX_CLIENT_ID가 설정되지 않았습니다.');
+                }
+
+                showLoading('Dropbox Chooser를 로딩하고 있습니다...');
+                await loadDropboxChooser(dropboxAppKey);
+
+                window.Dropbox.choose({
+                    linkType: 'direct',
+                    multiselect: true,
+                    success: function(files) {
+                        const ids = files.map(f => f.id).filter(Boolean);
+                        if (ids.length !== files.length) {
+                            showError('Dropbox 파일 ID를 가져오지 못했습니다.');
+                            return;
+                        }
+                        selectedDropboxIds = ids;
+                        selectedDropboxDocs = files.map(f => ({
+                            id: f.id, name: f.name, mimeType: 'Dropbox', iconUrl: f.icon
+                        }));
+                        updateSelectedList([...selectedGoogleDocs, ...selectedDropboxDocs]);
+                        downloadDropboxSelected();
+                    },
+                    cancel: function() {
+                        clearMessage();
+                    }
+                });
+            } catch (e) {
+                showError(e.message || 'Dropbox 연결 실패');
+            }
+        }
+
+        async function downloadDropboxSelected() {
+            clearMessage();
+            if (!selectedDropboxIds.length) {
+                showError('Dropbox에서 선택된 파일이 없습니다.');
+                return;
+            }
+
+            showLoading('Dropbox 파일을 다운로드하고 있습니다...');
+
+            try {
+                const query = selectedDropboxIds.map(id => `ids=${encodeURIComponent(id)}`).join('&');
+                const res = await fetch(`/api/dropbox/files/download?${query}`, {
+                    method: 'GET',
+                    credentials: 'include'
+                });
+
+                if (!res.ok) {
+                    throw new Error(`Dropbox 다운로드 실패: ${res.status} ${res.statusText}`);
+                }
+
+                const blob = await res.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'dropbox_files.zip';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                window.URL.revokeObjectURL(url);
+                clearMessage();
+            } catch (e) {
+                showError(e.message || 'Dropbox 다운로드 실패');
+            }
+        }
+
+        // Dropbox 인증 테스트 호출
+        async function testDropboxAuth() {
+            clearMessage();
+            showLoading('Dropbox 인증 테스트 요청 중...');
+
+            try {
+                const res = await fetch('/api/dropbox/test', {
+                    method: 'GET',
+                    credentials: 'include'
+                });
+
+                if (!res.ok) {
+                    if (res.status === 401 || res.status === 403) {
+                        showLoading('Dropbox 로그인이 필요합니다. 리다이렉트합니다...');
+                        setTimeout(() => {
+                            window.location.href = '/oauth2/authorization/dropbox';
+                        }, 800);
+                        return;
+                    }
+                    throw new Error(`테스트 실패: ${res.status} ${res.statusText}`);
+                }
+
+                const text = await res.text();
+                const msg = text && text.trim() ? text : '테스트 성공';
+                showLoading(msg);
+            } catch (e) {
+                showError(e.message || 'Dropbox 인증 테스트 실패');
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            const googleOne = document.getElementById('google-one');
+            googleOne.addEventListener('click', initPickerFlow);
+
+            const dropboxOne = document.getElementById('dropbox-one');
+            dropboxOne.addEventListener('click', openDropboxChooser);
+
+            const dropboxTwo = document.getElementById('dropbox-two');
+            dropboxTwo.addEventListener('click', testDropboxAuth);
+
         });
-      } catch (e) {
-        errorEl.textContent = e.message;
-      }
-    }
-
-    window.addEventListener('DOMContentLoaded', () => {
-      document.getElementById('open-picker').addEventListener('click', initPickerFlow);
-      document.getElementById('submit').addEventListener('click', async () => {
-        const errorEl = document.getElementById('error');
-        errorEl.textContent = '';
-        try {
-          await downloadSelected();
-        } catch (e) {
-          errorEl.textContent = e.message;
-        }
-      });
-    });
-  </script>
-  </head>
+    </script>
+</head>
 <body>
-  <h1>Google Drive 파일 선택</h1>
-  <div id="error" class="error"></div>
-  <div class="actions">
-    <button id="open-picker">Google Drive에서 선택</button>
-  </div>
-  <div id="list" class="list"></div>
-  <div class="actions">
-    <button id="submit">선택 완료</button>
-  </div>
+<h1>파일 선택 및 다운로드</h1>
+<div id="error" class="error"></div>
+<div class="actions">
+    <button id="google-one">Google Drive 선택·다운로드</button>
+    <button id="dropbox-one">Dropbox 선택·다운로드</button>
+    <button id="dropbox-two">dropbox 인증 테스트</button>
+</div>
+<div id="list" class="list"></div>
+<div class="actions"></div>
 </body>
 </html>
