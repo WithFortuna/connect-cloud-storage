@@ -20,8 +20,9 @@ import java.util.zip.ZipOutputStream;
 @Service
 public class DropboxService {
     private final ObjectMapper objectMapper = new ObjectMapper();
-    @Value()
-    private static final String CONTENT_DOWNLOAD_URL = "";
+
+    @Value("${dropbox.download-url}")
+    private String CONTENT_DOWNLOAD_URL;
 
     public ByteArrayOutputStream downloadFiles(List<String> ids, String accessToken) throws IOException, InterruptedException {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
