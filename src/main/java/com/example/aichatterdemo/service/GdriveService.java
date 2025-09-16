@@ -1,7 +1,7 @@
-package com.example.aichatterdemo.srevice;
+package com.example.aichatterdemo.service;
 
 import com.example.aichatterdemo.infrastructure.GoogleDriveClientFactory;
-import com.example.aichatterdemo.srevice.strategy.DownloadStrategy;
+import com.example.aichatterdemo.service.strategy.DownloadStrategy;
 import com.google.api.services.drive.Drive;
 import com.google.api.services.drive.model.File;
 import org.springframework.beans.factory.annotation.Autowired;

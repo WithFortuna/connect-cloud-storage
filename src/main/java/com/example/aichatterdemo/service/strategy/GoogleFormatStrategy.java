@@ -1,4 +1,4 @@
-package com.example.aichatterdemo.srevice.strategy;
+package com.example.aichatterdemo.service.strategy;
 
 import com.google.api.services.drive.Drive;
 import lombok.Getter;
