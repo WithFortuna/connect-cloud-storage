@@ -1,0 +1,28 @@
+version: "3.8"
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    container_name: myapp
+    env_file:
+      - .env
+#
+#  ngrok:
+#    image: ngrok/ngrok:latest
+#    command: http myapp:8080
+#    depends_on:
+#      - app
+#    env_file:
+#      - .env
+#    ports:
+#      - "4040:4040"   # ngrok UI 대시보드 (http://localhost:4040)
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARED_TOKEN}
+    depends_on:
+      - app
+    env_file:
+      - .env
+    restart: unless-stopped
