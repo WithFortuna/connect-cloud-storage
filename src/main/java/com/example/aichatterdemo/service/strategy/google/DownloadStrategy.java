@@ -1,4 +1,4 @@
-package com.example.aichatterdemo.service.strategy;
+package com.example.aichatterdemo.service.strategy.google;
 
 import com.google.api.services.drive.Drive;
 import com.google.api.services.drive.model.File;

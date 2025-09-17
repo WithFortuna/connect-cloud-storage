@@ -30,11 +30,6 @@ import java.util.Map;
 public class GdriveController {
     private final GdriveService gdriveService;
     private final OAuth2AuthorizedClientManager  authorizedClientManager;
-    @Value("${spring.security.oauth2.client.registration.google.client-id}")
-    private String clientId;
-
-    @Value("${spring.security.oauth2.client.registration.google.redirect-uri}")
-    private String redirectUri;
 
     @Value("${google.api-key:}")
     private String googleApiKey;
@@ -59,6 +54,7 @@ public class GdriveController {
                 .build();
     }
 
+    // TODO: 연동여부를 DB 에서 조회 not session
     // 구글 연동된 사용자인지 판별하는 기준은 principalName(anonymousUser 고정), registrationId(google 고정), sessionId
     @GetMapping("/api/drive/auth-status")
     public ResponseEntity<Void> isAuthorized(HttpServletRequest request) {
